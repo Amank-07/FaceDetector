@@ -1,15 +1,18 @@
 # Real-Time Face Detection
 
-A Python application that opens your webcam and performs real-time face detection using OpenCV. Supports both Haar Cascade and OpenCV DNN detectors.
+A Python application for face detection using OpenCV. Supports **webcam** (live feed), **image** (upload/select a photo), and **video** (upload/select a video file). Uses Haar Cascade or OpenCV DNN detectors.
 
 ## Features
 
-- **Real-time face detection** via webcam
+- **Multiple input modes**: Webcam, image file, or video file
+- **Image mode**: Upload/select a photo → see face count and bounding boxes
+- **Video mode**: Upload/select a video → detect faces frame-by-frame with count
+- **Webcam mode**: Real-time face detection from camera
 - **Two detector modes**: Haar Cascade (fast) or OpenCV DNN (more accurate)
 - **Visual feedback**: Bounding boxes around detected faces
-- **On-screen stats**: FPS and face count
-- **Graceful error handling**: Camera not found, permission denied, etc.
-- **Extra controls**: Switch detectors, toggle detection, resize frames for performance
+- **On-screen stats**: FPS, face count, max faces (video)
+- **Graceful error handling**: Camera not found, file not found, permission denied, etc.
+- **Extra controls**: Switch detectors, toggle detection (webcam), resize frames for performance
 
 ## Requirements
 
@@ -56,12 +59,34 @@ python main.py
 python main.py
 ```
 
+### Image mode
+
+```bash
+# Open file picker to select an image
+python main.py --image
+
+# Or provide path directly
+python main.py --image path/to/photo.jpg
+```
+
+### Video mode
+
+```bash
+# Open file picker to select a video
+python main.py --video
+
+# Or provide path directly
+python main.py --video path/to/video.mp4
+```
+
 ### Command-line options
 
 | Option        | Default | Description                          |
 |---------------|---------|--------------------------------------|
-| `--camera`    | 0       | Camera device index                  |
+| `--camera`    | 0       | Camera device index (webcam mode)    |
 | `--detector`  | haar    | Initial detector: `haar` or `dnn`    |
+| `--image`     | -       | Detect faces in an image (path or picker) |
+| `--video`     | -       | Detect faces in a video (path or picker)   |
 | `--no-resize` | -       | Disable frame resizing               |
 | `--max-width` | 1280    | Max frame width when resizing        |
 | `--max-height`| 720     | Max frame height when resizing       |
@@ -69,8 +94,20 @@ python main.py
 ### Examples
 
 ```bash
-# Use DNN detector from the start
-python main.py --detector dnn
+# Webcam (default)
+python main.py
+
+# Image with file picker
+python main.py --image
+
+# Image with path
+python main.py --image C:\Photos\group.jpg
+
+# Video with file picker
+python main.py --video
+
+# Video with DNN detector
+python main.py --video clip.mp4 --detector dnn
 
 # Use a different camera (e.g., external webcam)
 python main.py --camera 1
@@ -84,11 +121,12 @@ python main.py --max-width 960 --max-height 540
 
 ### Keyboard controls
 
-| Key | Action                    |
-|-----|---------------------------|
-| `q` | Quit application          |
-| `d` | Switch detector (Haar ↔ DNN) |
-| `t` | Toggle detection on/off   |
+| Key | Action                    | Mode      |
+|-----|---------------------------|-----------|
+| `q` | Quit application          | All       |
+| `d` | Switch detector (Haar ↔ DNN) | Webcam, video |
+| `t` | Toggle detection on/off   | Webcam only |
+| Any key | Close image window   | Image only |
 
 ## Project structure
 
