@@ -26,6 +26,7 @@ from utils import (
     HaarCascadeDetector,
     DNNDetector,
     FPSCounter,
+    FaceTracker,
     draw_detections,
     draw_overlay_text,
     resize_frame,
@@ -142,7 +143,22 @@ def run_image_detection(args, detector, detector_name: str, image_path: Path):
         frame = resize_frame(frame, args.max_width, args.max_height)
 
     faces = detector.detect(frame)
-    draw_detections(frame, faces)
+
+    # Assign a simple unique ID per face in this image
+    id_faces = list(enumerate(faces, start=1))
+    for face_id, (x, y, w, h) in id_faces:
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(
+            frame,
+            f"ID {face_id}",
+            (x, max(0, y - 10)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            (0, 255, 0),
+            1,
+            cv2.LINE_AA,
+        )
+
     draw_overlay_text(frame, f"Faces detected: {len(faces)}", (10, 35), color=(0, 255, 0))
     draw_overlay_text(frame, f"Detector: {detector_name}", (10, 70), color=(255, 255, 0))
 
@@ -162,6 +178,7 @@ def run_video_detection(args, detector, detector_name: str, video_path: Path):
         sys.exit(1)
 
     fps_counter = FPSCounter()
+    tracker = FaceTracker()
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     max_faces_seen = 0
 
@@ -183,14 +200,27 @@ def run_video_detection(args, detector, detector_name: str, video_path: Path):
                 frame = resize_frame(frame, args.max_width, args.max_height)
 
             faces = detector.detect(frame)
-            max_faces_seen = max(max_faces_seen, len(faces))
+            tracked = tracker.update(faces)
+            max_faces_seen = max(max_faces_seen, len(tracked))
 
-            draw_detections(frame, faces)
+            # Draw tracked faces with IDs
+            for face_id, (x, y, w, h) in tracked:
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                cv2.putText(
+                    frame,
+                    f"ID {face_id}",
+                    (x, max(0, y - 10)),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.5,
+                    (0, 255, 0),
+                    1,
+                    cv2.LINE_AA,
+                )
             fps = fps_counter.update()
 
             frame_num = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             draw_overlay_text(frame, f"FPS: {fps:.1f}", (10, 35), color=(0, 255, 255))
-            draw_overlay_text(frame, f"Faces in frame: {len(faces)}", (10, 70), color=(0, 255, 0))
+            draw_overlay_text(frame, f"Faces in frame: {len(tracked)}", (10, 70), color=(0, 255, 0))
             draw_overlay_text(frame, f"Max faces: {max_faces_seen}", (10, 105), color=(255, 255, 0))
             draw_overlay_text(frame, f"Detector: {detector_name}", (10, 140), color=(255, 255, 0))
             if total_frames > 0:
@@ -243,6 +273,7 @@ def run_face_detection(args):
         sys.exit(1)
 
     fps_counter = FPSCounter()
+    tracker = FaceTracker()
     detection_enabled = True
     current_detector = detector
     current_detector_name = detector_name
@@ -274,8 +305,22 @@ def run_face_detection(args):
                 except Exception as e:
                     print(f"Detection error: {e}", file=sys.stderr)
 
-            # Draw bounding boxes
-            draw_detections(frame, faces)
+            # Track faces and draw bounding boxes with unique IDs
+            tracked = []
+            if detection_enabled and faces:
+                tracked = tracker.update(faces)
+                for face_id, (x, y, w, h) in tracked:
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                    cv2.putText(
+                        frame,
+                        f"ID {face_id}",
+                        (x, max(0, y - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 255, 0),
+                        1,
+                        cv2.LINE_AA,
+                    )
 
             # Update FPS
             fps = fps_counter.update()
@@ -289,7 +334,7 @@ def run_face_detection(args):
             )
             draw_overlay_text(
                 frame,
-                f"Faces: {len(faces)}",
+                f"Faces: {len(tracked) if detection_enabled else 0}",
                 (10, 70),
                 color=(0, 255, 0),
             )
@@ -342,6 +387,56 @@ def run_face_detection(args):
 def main():
     """Entry point."""
     args = parse_args()
+
+    # Always try GUI launcher first; fall back to CLI if Tkinter is unavailable
+    try:
+        import tkinter as tk
+    except ImportError:
+        print("Tkinter is not available in this Python environment. Falling back to CLI.", file=sys.stderr)
+    else:
+        root = tk.Tk()
+        root.title("Face Detection Launcher")
+
+        detector_var = tk.StringVar(value=args.detector)
+
+        tk.Label(root, text="Detector:", font=("Segoe UI", 10, "bold")).pack(
+            padx=10, pady=(10, 0), anchor="w"
+        )
+        det_frame = tk.Frame(root)
+        det_frame.pack(padx=10, pady=5, anchor="w")
+        tk.Radiobutton(det_frame, text="Haar Cascade", variable=detector_var, value="haar").pack(side="left")
+        tk.Radiobutton(det_frame, text="DNN", variable=detector_var, value="dnn").pack(side="left")
+
+        tk.Label(root, text="Choose mode:", font=("Segoe UI", 10, "bold")).pack(
+            padx=10, pady=(10, 5), anchor="w"
+        )
+        btn_frame = tk.Frame(root)
+        btn_frame.pack(padx=10, pady=(0, 10))
+
+        def start_webcam():
+            args.detector = detector_var.get()
+            args.image = None
+            args.video = None
+            root.destroy()
+
+        def start_image():
+            args.detector = detector_var.get()
+            args.image = ""
+            args.video = None
+            root.destroy()
+
+        def start_video():
+            args.detector = detector_var.get()
+            args.video = ""
+            args.image = None
+            root.destroy()
+
+        tk.Button(btn_frame, text="Webcam", width=12, command=start_webcam).grid(row=0, column=0, padx=5)
+        tk.Button(btn_frame, text="Image", width=12, command=start_image).grid(row=0, column=1, padx=5)
+        tk.Button(btn_frame, text="Video", width=12, command=start_video).grid(row=0, column=2, padx=5)
+
+        root.resizable(False, False)
+        root.mainloop()
 
     # Resolve image path
     if args.image is not None:

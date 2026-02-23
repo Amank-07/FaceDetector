@@ -1,13 +1,14 @@
 """
 Utility functions for face detection application.
-Handles face detection logic, drawing, FPS calculation, and model loading.
+Handles face detection logic, tracking, drawing, FPS calculation, and model loading.
 """
 
+import math
 import cv2
 import os
 import urllib.request
 from pathlib import Path
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 
 
 # DNN model URLs (OpenCV's pre-trained face detector)
@@ -150,6 +151,74 @@ class FPSCounter:
     def get(self) -> float:
         """Return current FPS value."""
         return self.fps
+
+
+class FaceTracker:
+    """
+    Very simple centroid-based tracker that assigns a stable ID to each face
+    across frames based on nearest-neighbour matching of bounding boxes.
+    """
+
+    def __init__(self, max_distance: float = 50.0, max_lost: int = 30):
+        self.max_distance = max_distance
+        self.max_lost = max_lost
+        self.next_id: int = 1
+        self.tracks: Dict[int, Dict[str, object]] = {}
+
+    @staticmethod
+    def _center(bbox: Tuple[int, int, int, int]) -> Tuple[float, float]:
+        x, y, w, h = bbox
+        return x + w / 2.0, y + h / 2.0
+
+    def update(
+        self, detections: List[Tuple[int, int, int, int]]
+    ) -> List[Tuple[int, Tuple[int, int, int, int]]]:
+        """
+        Update internal tracks with new detections.
+        Returns list of (track_id, bbox) for current frame.
+        """
+        assigned_track_ids = set()
+        results: List[Tuple[int, Tuple[int, int, int, int]]] = []
+
+        # Associate each detection to an existing track if close enough
+        for det in detections:
+            cx, cy = self._center(det)
+            best_id = None
+            best_dist = self.max_distance
+
+            for track_id, data in self.tracks.items():
+                if track_id in assigned_track_ids:
+                    continue
+                tx, ty = self._center(data["bbox"])  # type: ignore[index]
+                dist = math.hypot(cx - tx, cy - ty)
+                if dist < best_dist:
+                    best_dist = dist
+                    best_id = track_id
+
+            if best_id is not None:
+                # Update existing track
+                self.tracks[best_id]["bbox"] = det  # type: ignore[index]
+                self.tracks[best_id]["lost"] = 0  # type: ignore[index]
+                assigned_track_ids.add(best_id)
+                results.append((best_id, det))
+            else:
+                # Create new track
+                track_id = self.next_id
+                self.next_id += 1
+                self.tracks[track_id] = {"bbox": det, "lost": 0}
+                assigned_track_ids.add(track_id)
+                results.append((track_id, det))
+
+        # Mark unassigned tracks as lost, and remove if lost for too long
+        for track_id in list(self.tracks.keys()):
+            if track_id not in assigned_track_ids:
+                self.tracks[track_id]["lost"] = (  # type: ignore[index]
+                    self.tracks[track_id].get("lost", 0) + 1  # type: ignore[index]
+                )
+                if self.tracks[track_id]["lost"] > self.max_lost:  # type: ignore[index]
+                    del self.tracks[track_id]
+
+        return results
 
 
 def draw_detections(
